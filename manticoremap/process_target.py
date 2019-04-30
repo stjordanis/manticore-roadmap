@@ -3,7 +3,7 @@
 import argparse
 import os
 import difflib
-from process_file import process_lines, dump_lines
+from .process_file import process_lines, dump_lines
 
 arg_pointer_indices = {'mprotect': [0],
                        'newfstat': [1],
@@ -55,6 +55,7 @@ def record_arg_mismatch(left, right):
     with open('arg_mismatch.txt', 'a') as afile:
         afile.write(f"{left.name}({', '.join(str(a) for a in args)}) --> {str(left.ret)}\n")
 
+
 def check_for_ret_arg_mismatch(left, right):
     if left.name != right.name:
         print("Name mismatch! Panicking")
@@ -66,23 +67,32 @@ def check_for_ret_arg_mismatch(left, right):
         if sum(0 if l == r else 1 for l, r in zip(left.args, right.args)) == 1:
             record_arg_mismatch(left, right)
 
+
 def update_left_from_right(left, right):
-        for l, r in get_matching_lines(left, right):
-            if test_is_same_line(l, r):
-                for i in range(len(r.args)):
-                    if type(r.args[i]) is str and type(l.args[i]) is int:
+    for l, r in get_matching_lines(left, right):
+        if test_is_same_line(l, r):
+            for i in range(len(r.args)):
+                if type(r.args[i]) is str and type(l.args[i]) is int:
+                    r.args[i] = '_PTR'
+                    l.args[i] = '_PTR'
+                if l.args[i] != r.args[i]:
+                    if l.name in arg_pointer_indices and i in arg_pointer_indices[l.name]:
                         r.args[i] = '_PTR'
                         l.args[i] = '_PTR'
-                    if l.args[i] != r.args[i]:
-                        if l.name in arg_pointer_indices and i in arg_pointer_indices[l.name]:
-                            r.args[i] = '_PTR'
-                            l.args[i] = '_PTR'
-                if l.ret != r.ret and l.name in ignore_ret_mismatch:
-                    l.ret = 'IGNORED'
-                    r.ret = 'IGNORED'
+            if l.ret != r.ret and l.name in ignore_ret_mismatch:
+                l.ret = 'IGNORED'
+                r.ret = 'IGNORED'
 
-        for l, r in get_matching_lines(left, right):
-            check_for_ret_arg_mismatch(l, r)
+    for l, r in get_matching_lines(left, right):
+        check_for_ret_arg_mismatch(l, r)
+
+    return left, right
+
+
+def process_to_yaml(left, right):
+
+    return update_left_from_right(process_lines(left), process_lines(right))
+
 
 def main():
     parser = argparse.ArgumentParser(description='Parse a trace file into YAML')
@@ -93,12 +103,12 @@ def main():
     target = os.path.basename(args.target)
 
     with open(f'{target}.ktrace', 'r') as kfile:
-        klines = process_lines(kfile.readlines(), args.verbose)
+        klines = kfile.readlines()
 
-    with open(f'{target}.mtrace', 'r') as mfile:
-        mlines = process_lines(mfile.readlines(), args.verbose)
+        with open(f'{target}.mtrace', 'r') as mfile:
+            mlines = mfile.readlines()
 
-    update_left_from_right(klines, mlines)
+            process_to_yaml(klines, mlines)
 
     processed_path = 'processed'
     os.makedirs(processed_path, exist_ok=True)

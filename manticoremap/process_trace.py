@@ -1,10 +1,9 @@
 #!/usr/bin/env python
 
-from collections import namedtuple
 from sys import stdin
 
-class Call:
 
+class Call:
     def __init__(self, name:str, args:list, ret:int):
         self.name = name
         self.args = args

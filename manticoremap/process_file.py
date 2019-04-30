@@ -3,8 +3,8 @@
 import yaml
 import argparse
 import os
-from fancy_parser import parse_line
-from versioned_file import versioned_write
+from .fancy_parser import parse_line
+from .versioned_file import versioned_write
 
 unsupported = {'ioperm', 'arch_prctl', 'modify_ldt', 'execve'}
 yaml.add_representer(int, lambda dumper, data: dumper.represent_int(hex(data)))

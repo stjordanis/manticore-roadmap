@@ -2,11 +2,20 @@ import argparse
 import os
 import difflib
 
+
 def calc_ratio(left_lines, right_lines):
     return difflib.SequenceMatcher(a=left_lines,
                                    b=right_lines).ratio()
 
-def main():
+
+def ratio_lines(left, right):
+    ratio = calc_ratio(left, right)
+
+    print(target, "::", ratio)
+    return ratio
+
+
+if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Parse a trace file into YAML')
     parser.add_argument('target_dir', help="Name of the file to parse traces for")
     parser.add_argument('--verbose', '-v', action='count', help="Output verbosity")
@@ -23,12 +32,4 @@ def main():
     with open(os.path.join(args.target_dir, 'processed', f'{target}.mtrace.yaml'), 'r') as mfile:
         mlines = mfile.readlines()
 
-    ratio = calc_ratio(klines, mlines)
-    with open('ratios', 'a') as outfile:
-        outfile.write(f'{target}: {ratio}\n')
-
-    print(target, "::", ratio)
-
-
-if __name__ == '__main__':
-    main()
+    ratio_lines(klines, mlines)
