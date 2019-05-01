@@ -1,9 +1,8 @@
 #! /usr/bin/env python
-
-import argparse
-import os
 import difflib
-from .process_file import process_lines, dump_lines
+import yaml
+from .fancy_parser import parse_line
+from .versioned_file import versioned_write
 
 arg_pointer_indices = {'mprotect': [0],
                        'newfstat': [1],
@@ -17,6 +16,8 @@ arg_pointer_indices = {'mprotect': [0],
                        'unlinkat': [1], 'uselib': [0], 'ustat': [1], 'utime': [0, 1], 'wait4': [1, 3], 'waitid': [2, 4], 'write': [1]}
 
 ignore_ret_mismatch = {'mmap', 'brk', 'getpid', 'geteuid'}
+unsupported = {'ioperm', 'arch_prctl', 'modify_ldt', 'execve'}
+yaml.add_representer(int, lambda dumper, data: dumper.represent_int(hex(data)))
 
 
 def test_is_same_line(left, right):
@@ -33,17 +34,21 @@ def test_is_same_line(left, right):
             print(f"Mismatch between lines: <<< {left} ||| {right} >>>")
             return False
 
+
 def get_sequence_matcher(left_lines, right_lines, attr='name'):
     return difflib.SequenceMatcher(a=[getattr(i, attr) for i in left_lines],
                                    b=[getattr(i, attr) for i in right_lines])
+
 
 def get_matching_lines(left, right):
     for lindex, rindex, num in get_sequence_matcher(left, right).get_matching_blocks():
         yield from zip(left[lindex:lindex+num], right[rindex:rindex+num])
 
+
 def record_ret_mismatch(left, right):
     with open('ret_mismatch.txt', 'a') as rfile:
         rfile.write(f"{left.name}({', '.join(str(a) for a in left.args)}) --> [{str(left.ret)}, {str(right.ret)}]\n")
+
 
 def record_arg_mismatch(left, right):
     args = []
@@ -89,34 +94,21 @@ def update_left_from_right(left, right):
     return left, right
 
 
-def process_to_yaml(left, right):
+def process_lines(lines, verbose=0):
+    out = []
+    for line in lines:
+        line = line.strip()
+        if not len(line) or line.startswith('+++'):
+            continue
+        data = parse_line(line, v=verbose)
+        if data.name in unsupported:
+            continue
+        out.append(data)
+        if verbose:
+            print(str(data))
 
-    return update_left_from_right(process_lines(left), process_lines(right))
-
-
-def main():
-    parser = argparse.ArgumentParser(description='Parse a trace file into YAML')
-    parser.add_argument('target', help="Name of the file to parse traces for")
-    parser.add_argument('--verbose', '-v', action='count', help="Output verbosity")
-    args = parser.parse_args()
-
-    target = os.path.basename(args.target)
-
-    with open(f'{target}.ktrace', 'r') as kfile:
-        klines = kfile.readlines()
-
-        with open(f'{target}.mtrace', 'r') as mfile:
-            mlines = mfile.readlines()
-
-            process_to_yaml(klines, mlines)
-
-    processed_path = 'processed'
-    os.makedirs(processed_path, exist_ok=True)
-
-    dump_lines(os.path.join(processed_path, f'{target}.ktrace.yaml'), klines)
-    dump_lines(os.path.join(processed_path, f'{target}.mtrace.yaml'), mlines)
+    return out
 
 
-
-if __name__ == '__main__':
-    main()
+def dump_lines(filename, out):
+    versioned_write(filename, yaml.dump([d.yaml_dict() for d in out], default_flow_style=False))

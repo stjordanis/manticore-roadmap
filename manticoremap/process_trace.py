@@ -43,9 +43,6 @@ def process_trace(lines):
         elif line.startswith('exit_') and call_stack and call_stack[-1].name == linedata.name:
             call_stack.append(merge(call_stack.pop(), linedata))
 
-    for c in call_stack:
-        print(c)
-
     return call_stack
 
 

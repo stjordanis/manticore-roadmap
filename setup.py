@@ -26,11 +26,11 @@ setup(
 
     python_requires='>=3.6',
 
-    install_requires=['manticore[native]', 'plumbum'],
+    install_requires=['manticore[native]', 'yaml', 'lark-parser'],
 
     entry_points={
         'console_scripts': [
-            'manticore-roadmap=manticoremap:main',
+            'manticore-roadmap=manticoremap.main:main',
         ],
     },
 )
