@@ -10,6 +10,7 @@ parser.add_argument('--args', nargs=argparse.REMAINDER, default=[], help="Argume
 
 args = parser.parse_args()
 args.abspath = os.path.abspath(args.filename)
+args.stdin_abspath = os.path.abspath(args.stdin_file)
 
 if not os.path.exists(args.filename):
     print(f"Error: Invalid file path: {args.filename}")

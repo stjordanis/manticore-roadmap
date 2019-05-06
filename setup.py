@@ -26,7 +26,7 @@ setup(
 
     python_requires='>=3.6',
 
-    install_requires=['manticore[native]', 'yaml', 'lark-parser'],
+    install_requires=['manticore[native]', 'pyyaml', 'lark-parser', 'wrapt'],
 
     entry_points={
         'console_scripts': [
