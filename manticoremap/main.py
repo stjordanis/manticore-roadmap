@@ -1,6 +1,7 @@
 from .config import args
 from manticore.native import Manticore
 from manticore.core.plugin import Plugin
+from manticore.utils import log
 from manticore.platforms.platform import SyscallNotImplemented
 from manticore.utils.log import disable_colors
 from manticore.platforms.linux_syscall_stubs import SyscallStubs
@@ -15,7 +16,18 @@ import os
 import wrapt
 import threading
 import queue
+import logging
+import io
 
+logstream = io.StringIO()
+
+
+def monkey_patch_handlers():
+    for logger in logging.root.manager.loggerDict.values():
+        if isinstance(logger, logging.Logger):
+            for h in logger.handlers:
+                assert isinstance(h, logging.StreamHandler)
+                h.setStream(logstream)
 
 def is_unimplemented(f):
     return isinstance(f, wrapt.wrappers.BoundFunctionWrapper) and f._self_wrapper.__name__ == 'unimplemented'
@@ -88,6 +100,7 @@ def collect_manticore_trace():
 
     def inner(manticore_instance: Manticore, plugin_instance: TracerPlugin, message_queue: queue.Queue):
         manticore_instance.verbosity(0)
+        monkey_patch_handlers()
         manticore_instance.register_plugin(plugin_instance)
         manticore_instance.run()
 
@@ -150,22 +163,19 @@ def pretty_print_results(unimplemented: Counter, ratio, exception=None, status=(
 
     kstat, mstat = status
     print("===========")
-    print("Results:", "\n  ", "Native: exit", kstat, " | ", "Manticore:",
-          "exit " + str(mstat) if exception is None else "Exception")
+    print("Results:", "\n  ", "Native: Exit", kstat, " | ", "Manticore:",
+          "Exit " + str(mstat) if exception is None else "Exception:", exception)
     print("   Similarity ratio:", ratio)
     print("===========")
     print("Unimplemented System calls:")
     for name, count in unimplemented.most_common():
-        print('{0:4s} : {1}'.format(str(count), name))
+        print('   {0:4s} : {1}'.format(str(count), name))
     print("===========")
-    print("Exceptions:")
-    print(exception)
-
+    print("Warnings and Exceptions:")
+    print(logstream.getvalue())
 
 
 def main():
-    print("Warnings:")
-
     tracer, mc = collect_manticore_trace()
     mtrace = tracer.lines
     ktrace, kcode = collect_kernel_trace(mc.workspace)
