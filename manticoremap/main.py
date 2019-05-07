@@ -1,6 +1,7 @@
 from .config import args
 from manticore.native import Manticore
 from manticore.core.plugin import Plugin
+from manticore.platforms.platform import SyscallNotImplemented
 from manticore.utils.log import disable_colors
 from manticore.platforms.linux_syscall_stubs import SyscallStubs
 from .process_trace import process_trace
@@ -12,6 +13,8 @@ from collections import Counter
 import subprocess
 import os
 import wrapt
+import threading
+import queue
 
 
 def is_unimplemented(f):
@@ -33,10 +36,12 @@ def unsigned_hexlify(i):
     return i
 
 
-class loggerPlugin(Plugin):
+class TracerPlugin(Plugin):
 
     lines = []
     unimp_call_counter = Counter()
+    exit_status = None
+    last_exception = None
 
     def will_start_run_callback(self, state, *_args):
         state.cpu.emulate_until(0)
@@ -70,23 +75,36 @@ class loggerPlugin(Plugin):
 
         self.lines.append('%s(%s) = %s' % (name.replace('sys_', ''), args_s, ret_s))
 
+    def will_terminate_state_callback(self, current_state, current_state_id, e):
+        self.last_exception = e
+        message = str(e)
+        if 'finished with exit status' in message:
+            self.exit_status = int(message.split('status: ')[-1])
+
 
 def collect_manticore_trace():
-
     m = Manticore(args.filename, argv=args.args, concrete_start=open(args.stdin_abspath, 'rb').read())
-    m.verbosity(0)
+    plug = TracerPlugin()
 
-    # logging.basicConfig(stream=open('manticore.log', 'w'), level=logging.INFO)
+    def inner(manticore_instance: Manticore, plugin_instance: TracerPlugin, message_queue: queue.Queue):
+        manticore_instance.verbosity(0)
+        manticore_instance.register_plugin(plugin_instance)
+        manticore_instance.run()
 
-    pluginInstance = loggerPlugin()
+    messages = queue.Queue()
+    proc = threading.Thread(target=inner, args=(m, plug, messages))
+    try:
+        proc.start()
+        proc.join(args.timeout)  # TODO - handle timeout exception
+    except:
+        print("Got caught here for some reason")
 
-    m.register_plugin(pluginInstance)
+    try:
+        exception = messages.get(block=False)
+    except queue.Empty:
+        exception = None
 
-    #TODO this line needs some sort of timeout
-    m.run()
-
-    # TODO save mtrace to versioned file
-    return pluginInstance.lines, m.workspace
+    return plug, m
 
 
 def collect_kernel_trace(workspace):
@@ -106,7 +124,7 @@ def collect_kernel_trace(workspace):
                               stderr=open('ktrace_report.stderr', 'w')).wait()
 
     data = open('ktrace_report.stdout').readlines()
-    return [repr(l) for l in process_trace(filter(lambda l: ':' in l, data))]
+    return [repr(l) for l in process_trace(filter(lambda l: ':' in l, data))], tracer.returncode
 
 
 def yamlify(ktrace, mtrace):
@@ -125,10 +143,32 @@ def yamlify(ktrace, mtrace):
     return klines, mlines
 
 
-def main():
+def pretty_print_results(unimplemented: Counter, ratio, exception=None, status=(0,0)):
+    if args.ratio:
+        print(ratio)
+        return
 
-    mtrace, workspace = collect_manticore_trace()
-    ktrace = collect_kernel_trace(workspace)
+    kstat, mstat = status
+    print("===========")
+    print("Results:", "\n  ", "Native: exit", kstat, " | ", "Manticore:",
+          "exit " + str(mstat) if exception is None else "Exception")
+    print("   Similarity ratio:", ratio)
+    print("===========")
+    print("Unimplemented System calls:")
+    for name, count in unimplemented.most_common():
+        print('{0:4s} : {1}'.format(str(count), name))
+    print("===========")
+    print("Exceptions:")
+    print(exception)
+
+
+
+def main():
+    print("Warnings:")
+
+    tracer, mc = collect_manticore_trace()
+    mtrace = tracer.lines
+    ktrace, kcode = collect_kernel_trace(mc.workspace)
 
     with open('ktrace', 'w') as kfile:
         for line in ktrace:
@@ -139,14 +179,15 @@ def main():
 
     yamlify(ktrace, mtrace)
 
-    print(files_ratio('processed_ktrace.yaml', 'processed_mtrace.yaml'))
+    ratio = files_ratio('processed_ktrace.yaml', 'processed_mtrace.yaml')
+
+    pretty_print_results(tracer.unimp_call_counter, ratio, tracer.last_exception, (kcode, tracer.exit_status))
 
 
 if __name__ == '__main__':
     main()
 
 # TODO:
-    # Handle exceptions in Manticore
-    # Compare exit statuses
     # Pretty print output
     # Save Manticore log to file
+
