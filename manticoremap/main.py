@@ -15,7 +15,7 @@ import subprocess
 import os
 import wrapt
 import threading
-import queue
+import time
 import logging
 import io
 
@@ -27,6 +27,7 @@ def monkey_patch_handlers():
         if isinstance(logger, logging.Logger):
             for h in logger.handlers:
                 assert isinstance(h, logging.StreamHandler)
+                h.setFormatter(logging.Formatter(("%(name)s:%(levelname)s %(message)s")))
                 h.setStream(logstream)
 
 def is_unimplemented(f):
@@ -98,25 +99,21 @@ def collect_manticore_trace():
     m = Manticore(args.filename, argv=args.args, concrete_start=open(args.stdin_abspath, 'rb').read())
     plug = TracerPlugin()
 
-    def inner(manticore_instance: Manticore, plugin_instance: TracerPlugin, message_queue: queue.Queue):
+    def inner(manticore_instance: Manticore, plugin_instance: TracerPlugin):
         manticore_instance.verbosity(0)
         monkey_patch_handlers()
         manticore_instance.register_plugin(plugin_instance)
         manticore_instance.run()
 
-    messages = queue.Queue()
-    proc = threading.Thread(target=inner, args=(m, plug, messages))
+    proc = threading.Thread(target=inner, args=(m, plug))
+    starttime = time.time()
     try:
         proc.start()
         proc.join(args.timeout)  # TODO - handle timeout exception
     except:
-        print("Got caught here for some reason")
+        pass  # Timed out
 
-    try:
-        exception = messages.get(block=False)
-    except queue.Empty:
-        exception = None
-
+    m.elapsed = time.time() - starttime
     return plug, m
 
 
@@ -126,18 +123,20 @@ def collect_kernel_trace(workspace):
 
     subprocess.Popen(['sudo', '/usr/bin/trace-cmd', 'reset']).wait()
 
+    starttime = time.time()
     tracer = subprocess.Popen(['sudo', '/usr/bin/trace-cmd', 'record', '-e', 'syscalls', '-F', args.abspath] + args.args,
                               stdin=subprocess.PIPE,
                               stdout=open('ktrace.stdout', 'w'),
                               stderr=open('ktrace.stderr', 'w'))
     tracer.communicate(input=open(args.stdin_abspath, 'rb').read())
+    elapsed = time.time() - starttime
 
     report = subprocess.Popen(['sudo',  '/usr/bin/trace-cmd', 'report'],
                               stdout=open('ktrace_report.stdout', 'w'),
                               stderr=open('ktrace_report.stderr', 'w')).wait()
 
     data = open('ktrace_report.stdout').readlines()
-    return [repr(l) for l in process_trace(filter(lambda l: ':' in l, data))], tracer.returncode
+    return [repr(l) for l in process_trace(filter(lambda l: ':' in l, data))], tracer.returncode, elapsed
 
 
 def yamlify(ktrace, mtrace):
@@ -156,29 +155,46 @@ def yamlify(ktrace, mtrace):
     return klines, mlines
 
 
-def pretty_print_results(unimplemented: Counter, ratio, exception=None, status=(0,0)):
+def pretty_print_results(unimplemented: Counter, ratio, exception=None, status=(0,0), elapsed=(0,0)):
     if args.ratio:
         print(ratio)
         return
 
     kstat, mstat = status
-    print("===========")
-    print("Results:", "\n  ", "Native: Exit", kstat, " | ", "Manticore:",
-          "Exit " + str(mstat) if exception is None else "Exception:", exception)
-    print("   Similarity ratio:", ratio)
-    print("===========")
-    print("Unimplemented System calls:")
-    for name, count in unimplemented.most_common():
-        print('   {0:4s} : {1}'.format(str(count), name))
-    print("===========")
-    print("Warnings and Exceptions:")
-    print(logstream.getvalue())
+    print("Results:")
+    m, s = divmod(elapsed[0], 60)
+    print(f'{int(m)}m {s:.02f}s', "Native: Exit", kstat)
+    m, s = divmod(elapsed[1], 60)
+    print(f'{int(m)}m {s:.02f}s', "Manticore:", "Exit " + str(mstat) if exception is None else "Exception:", exception)
+    print("Similarity ratio:", ratio)
+
+    if len(unimplemented):
+        print("\n---------------------------------------------\n")
+        print("Unimplemented System calls:")
+        for name, count in unimplemented.most_common():
+            print('   {0:4s} : {1}'.format(str(count), name))
+
+    logdata = logstream.getvalue().strip()
+    if len(logdata):
+        print("\n---------------------------------------------\n")
+        print("Warnings and Exceptions:")
+        print(logstream.getvalue())
+
+    if os.path.exists('arg_mismatch.txt'):
+        print("---------------------------------------------\n")
+        print("System calls with mismatched arguments:")
+        print(open('arg_mismatch.txt').read())
+
+    if os.path.exists('ret_mismatch.txt'):
+        print("---------------------------------------------\n")
+        print("System calls with mismatched return values:")
+        print(open('ret_mismatch.txt').read())
 
 
 def main():
     tracer, mc = collect_manticore_trace()
     mtrace = tracer.lines
-    ktrace, kcode = collect_kernel_trace(mc.workspace)
+    ktrace, kcode, ktime = collect_kernel_trace(mc.workspace)
 
     with open('ktrace', 'w') as kfile:
         for line in ktrace:
@@ -191,13 +207,16 @@ def main():
 
     ratio = files_ratio('processed_ktrace.yaml', 'processed_mtrace.yaml')
 
-    pretty_print_results(tracer.unimp_call_counter, ratio, tracer.last_exception, (kcode, tracer.exit_status))
+    pretty_print_results(tracer.unimp_call_counter,
+                         ratio,
+                         tracer.last_exception,
+                         (kcode, tracer.exit_status),
+                         (ktime, mc.elapsed))
 
 
 if __name__ == '__main__':
     main()
 
 # TODO:
-    # Pretty print output
     # Save Manticore log to file
 
