@@ -3,6 +3,7 @@ import difflib
 import yaml
 from .fancy_parser import parse_line
 from .versioned_file import versioned_write
+from .utils import unsigned_hexlify
 
 arg_pointer_indices = {'mprotect': [0],
                        'newfstat': [1],
@@ -18,6 +19,12 @@ arg_pointer_indices = {'mprotect': [0],
 ignore_ret_mismatch = {'mmap', 'brk', 'getpid', 'geteuid'}
 unsupported = {'ioperm', 'arch_prctl', 'modify_ldt', 'execve'}
 yaml.add_representer(int, lambda dumper, data: dumper.represent_int(hex(data)))
+
+
+def hstr(i):
+    if type(i) is list:
+        return str([hstr(j) for j in i])
+    return unsigned_hexlify(i)
 
 
 def test_is_same_line(left, right):
@@ -47,7 +54,7 @@ def get_matching_lines(left, right):
 
 def record_ret_mismatch(left, right):
     with open('ret_mismatch.txt', 'a') as rfile:
-        rfile.write(f"{left.name}({', '.join(str(a) for a in left.args)}) --> [{str(left.ret)}, {str(right.ret)}]\n")
+        rfile.write(f"{left.name}({', '.join(hstr(a) for a in left.args)}) --> [{hstr(left.ret)}, {hstr(right.ret)}]\n")
 
 
 def record_arg_mismatch(left, right):
@@ -58,7 +65,7 @@ def record_arg_mismatch(left, right):
         else:
             args.append([l, r])
     with open('arg_mismatch.txt', 'a') as afile:
-        afile.write(f"{left.name}({', '.join(str(a) for a in args)}) --> {str(left.ret)}\n")
+        afile.write(f"{left.name}({', '.join(hstr(a) for a in args)}) --> {hstr(left.ret)}\n")
 
 
 def check_for_ret_arg_mismatch(left, right):

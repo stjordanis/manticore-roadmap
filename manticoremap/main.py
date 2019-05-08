@@ -8,6 +8,7 @@ from manticore.platforms.linux_syscall_stubs import SyscallStubs
 from .process_trace import process_trace
 from .process_target import process_lines, update_left_from_right, dump_lines
 from .file_ratio import files_ratio
+from .utils import unsigned_hexlify
 from base64 import b64encode
 from collections import Counter
 
@@ -30,6 +31,7 @@ def monkey_patch_handlers():
                 h.setFormatter(logging.Formatter(("%(name)s:%(levelname)s %(message)s")))
                 h.setStream(logstream)
 
+
 def is_unimplemented(f):
     return isinstance(f, wrapt.wrappers.BoundFunctionWrapper) and f._self_wrapper.__name__ == 'unimplemented'
 
@@ -41,12 +43,21 @@ stubs = set(f.__name__
 disable_colors()
 
 
-def unsigned_hexlify(i):
-    if type(i) is int:
-        if i < 0:
-            return hex((1 << 64) + i)
-        return hex(i)
-    return i
+def get_warnings_and_exceptions(raw_str):
+    warnings = Counter()
+    exception = ''
+
+    lines = raw_str.split('\n')
+    for index, line in enumerate(lines):
+        if ('WARNING' in line or
+            'ERROR' in line or
+            'CRITICAL' in line) \
+                and 'Unimplemented system call' not in line:
+            warnings.update({line: 1})
+        if 'ERROR: Exception:' in line:
+            exception = '\n'.join(lines[index:])
+            break
+    return warnings, exception
 
 
 class TracerPlugin(Plugin):
@@ -152,10 +163,12 @@ def yamlify(ktrace, mtrace):
     dump_lines('processed_ktrace.yaml', klines)
     dump_lines('processed_mtrace.yaml', mlines)
 
+    subprocess.Popen('diff -y processed_ktrace.yaml processed_mtrace.yaml > kmdiff.yaml', shell=True)
+
     return klines, mlines
 
 
-def pretty_print_results(unimplemented: Counter, ratio, exception=None, status=(0,0), elapsed=(0,0)):
+def pretty_print_results(unimplemented: Counter, ratio, exception=None, status=(0,0), elapsed=(0,0), workspace=''):
     if args.ratio:
         print(ratio)
         return
@@ -167,6 +180,9 @@ def pretty_print_results(unimplemented: Counter, ratio, exception=None, status=(
     m, s = divmod(elapsed[1], 60)
     print(f'{int(m)}m {s:.02f}s', "Manticore:", "Exit " + str(mstat) if exception is None else "Exception:", exception)
     print("Similarity ratio:", ratio)
+    print("Trace Diff:", os.path.join(workspace, 'kmdiff.yaml'))
+
+    warnings, exceptions = get_warnings_and_exceptions(logstream.getvalue().strip())
 
     if len(unimplemented):
         print("\n---------------------------------------------\n")
@@ -174,14 +190,19 @@ def pretty_print_results(unimplemented: Counter, ratio, exception=None, status=(
         for name, count in unimplemented.most_common():
             print('   {0:4s} : {1}'.format(str(count), name))
 
-    logdata = logstream.getvalue().strip()
-    if len(logdata):
+    if len(warnings):
         print("\n---------------------------------------------\n")
-        print("Warnings and Exceptions:")
-        print(logstream.getvalue())
+        print("Warnings and Errors:")
+        for text, count in warnings.most_common():
+            print(text, f"({count})" if count > 1 else "")
+
+    if len(exceptions):
+        print("\n---------------------------------------------\n")
+        print("Traceback:")
+        print(exceptions)
 
     if os.path.exists('arg_mismatch.txt'):
-        print("---------------------------------------------\n")
+        print("\n---------------------------------------------\n")
         print("System calls with mismatched arguments:")
         print(open('arg_mismatch.txt').read())
 
@@ -211,7 +232,8 @@ def main():
                          ratio,
                          tracer.last_exception,
                          (kcode, tracer.exit_status),
-                         (ktime, mc.elapsed))
+                         (ktime, mc.elapsed),
+                         mc.workspace)
 
 
 if __name__ == '__main__':
