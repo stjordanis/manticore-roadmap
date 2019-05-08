@@ -11,6 +11,7 @@ from .file_ratio import files_ratio
 from .utils import unsigned_hexlify
 from base64 import b64encode
 from collections import Counter
+from termcolor import cprint
 
 import subprocess
 import os
@@ -174,7 +175,7 @@ def pretty_print_results(unimplemented: Counter, ratio, exception=None, status=(
         return
 
     kstat, mstat = status
-    print("Results:")
+    cprint("Results:", 'yellow', attrs=['bold'])
     m, s = divmod(elapsed[0], 60)
     print(f'{int(m)}m {s:.02f}s', "Native: Exit", kstat)
     m, s = divmod(elapsed[1], 60)
@@ -185,30 +186,30 @@ def pretty_print_results(unimplemented: Counter, ratio, exception=None, status=(
     warnings, exceptions = get_warnings_and_exceptions(logstream.getvalue().strip())
 
     if len(unimplemented):
-        print("\n---------------------------------------------\n")
-        print("Unimplemented System calls:")
+        cprint("\n---------------------------------------------\n", 'grey')
+        cprint("Unimplemented System calls:", 'yellow', attrs=['bold'])
         for name, count in unimplemented.most_common():
             print('   {0:4s} : {1}'.format(str(count), name))
 
     if len(warnings):
-        print("\n---------------------------------------------\n")
-        print("Warnings and Errors:")
+        cprint("\n---------------------------------------------\n", 'grey')
+        cprint("Warnings and Errors:", 'yellow', attrs=['bold'])
         for text, count in warnings.most_common():
-            print(text, f"({count})" if count > 1 else "")
+            print(f"({count})" if count > 1 else "", text)
 
     if len(exceptions):
-        print("\n---------------------------------------------\n")
-        print("Traceback:")
+        cprint("\n---------------------------------------------\n", 'grey')
+        cprint("Traceback:", 'yellow', attrs=['bold'])
         print(exceptions)
 
     if os.path.exists('arg_mismatch.txt'):
-        print("\n---------------------------------------------\n")
-        print("System calls with mismatched arguments:")
+        cprint("\n---------------------------------------------\n", 'grey')
+        cprint("System calls with mismatched arguments:", 'yellow', attrs=['bold'])
         print(open('arg_mismatch.txt').read())
 
     if os.path.exists('ret_mismatch.txt'):
-        print("---------------------------------------------\n")
-        print("System calls with mismatched return values:")
+        cprint("---------------------------------------------\n", 'grey')
+        cprint("System calls with mismatched return values:", 'yellow', attrs=['bold'])
         print(open('ret_mismatch.txt').read())
 
 
