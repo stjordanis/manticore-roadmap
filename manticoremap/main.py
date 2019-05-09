@@ -3,6 +3,7 @@ from manticore.native import Manticore
 from manticore.core.plugin import Plugin
 from manticore.utils import log
 from manticore.platforms.platform import SyscallNotImplemented
+from manticore.core.state import TerminateState
 from manticore.utils.log import disable_colors
 from manticore.platforms.linux_syscall_stubs import SyscallStubs
 from .process_trace import process_trace
@@ -179,7 +180,9 @@ def pretty_print_results(unimplemented: Counter, ratio, exception=None, status=(
     m, s = divmod(elapsed[0], 60)
     print(f'{int(m)}m {s:.02f}s', "Native: Exit", kstat)
     m, s = divmod(elapsed[1], 60)
-    print(f'{int(m)}m {s:.02f}s', "Manticore:", "Exit " + str(mstat) if exception is None else "Exception:", exception)
+    print(f'{int(m)}m {s:.02f}s', "Manticore:",
+          "Exit " + str(mstat) if (exception is None or isinstance(exception, TerminateState)) else
+          "Exception:", exception if not isinstance(exception, TerminateState) else "")
     print("Similarity ratio:", ratio)
     print("Trace Diff:", os.path.join(workspace, 'kmdiff.yaml'))
 
@@ -235,6 +238,8 @@ def main():
                          (kcode, tracer.exit_status),
                          (ktime, mc.elapsed),
                          mc.workspace)
+
+    exit()
 
 
 if __name__ == '__main__':
