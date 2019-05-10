@@ -69,8 +69,9 @@ class TracerPlugin(Plugin):
     exit_status = None
     last_exception = None
 
-    def will_start_run_callback(self, state, *_args):
-        state.cpu.emulate_until(0)
+    def will_run_callback(self, ready_states):
+        for state in ready_states:
+            state.cpu.emulate_until(0)
 
     def will_execute_syscall_callback(self, state, model):
         unimp = set(f.__name__
