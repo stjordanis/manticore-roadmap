@@ -58,7 +58,7 @@ def get_warnings_and_exceptions(raw_str):
             'CRITICAL' in line) \
                 and 'Unimplemented system call' not in line:
             warnings.update({line: 1})
-        if 'ERROR: Exception:' in line:
+        if 'ERROR: Exception in state' in line:
             exception = '\n'.join(lines[index:])
             break
     return warnings, exception
