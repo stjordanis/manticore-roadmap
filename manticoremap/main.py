@@ -1,9 +1,10 @@
 from .config import args
 from manticore.native import Manticore
 from manticore.core.plugin import Plugin
-from manticore.utils import log
+from manticore.utils import log, config
 from manticore.platforms.platform import SyscallNotImplemented
 from manticore.core.state import TerminateState
+from manticore.core.manticore import MProcessingType
 from manticore.utils.log import disable_colors
 from manticore.platforms.linux_syscall_stubs import SyscallStubs
 from .process_trace import process_trace
@@ -23,6 +24,7 @@ import logging
 import io
 
 logstream = io.StringIO()
+config.get_group('core').update('mprocessing', MProcessingType.single)
 
 
 def monkey_patch_handlers():
@@ -102,7 +104,7 @@ class TracerPlugin(Plugin):
 
         self.lines.append('%s(%s) = %s' % (name.replace('sys_', ''), args_s, ret_s))
 
-    def will_terminate_state_callback(self, current_state, current_state_id, e):
+    def will_terminate_state_callback(self, current_state, e):
         self.last_exception = e
         message = str(e)
         if 'finished with exit status' in message:
@@ -181,9 +183,10 @@ def pretty_print_results(unimplemented: Counter, ratio, exception=None, status=(
     m, s = divmod(elapsed[0], 60)
     print(f'{int(m)}m {s:.02f}s', "Native: Exit", kstat)
     m, s = divmod(elapsed[1], 60)
+    had_exception = exception is not None and not isinstance(exception, TerminateState)
     print(f'{int(m)}m {s:.02f}s', "Manticore:",
-          "Exit " + str(mstat) if (exception is None or isinstance(exception, TerminateState)) else
-          "Exception:", exception if not isinstance(exception, TerminateState) else "")
+          "Exit " + str(mstat) if not had_exception else
+          "Exception:", exception if had_exception else "")
     print("Similarity ratio:", ratio)
     print("Trace Diff:", os.path.join(workspace, 'kmdiff.yaml'))
 
