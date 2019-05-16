@@ -104,7 +104,7 @@ class TracerPlugin(Plugin):
 
         self.lines.append('%s(%s) = %s' % (name.replace('sys_', ''), args_s, ret_s))
 
-    def will_terminate_state_callback(self, current_state, e):
+    def will_kill_state_callback(self, current_state, e):
         self.last_exception = e
         message = str(e)
         if 'finished with exit status' in message:
